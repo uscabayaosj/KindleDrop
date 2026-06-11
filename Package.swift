@@ -10,7 +10,7 @@ let package = Package(
         .executableTarget(
             name: "KindleDrop",
             path: "Sources/KindleDrop",
-            exclude: ["Resources/Info.plist"]
+            exclude: ["Resources/Info.plist", "Resources/AppIcon.icns"]
         )
     ]
 )

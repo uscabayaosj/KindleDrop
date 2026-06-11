@@ -1,17 +1,8 @@
 # KindleDrop
 
-A lightweight macOS app for sending PDFs and documents to your Amazon Kindle using Amazon's official Send to Kindle web service.
+Send PDFs to your Kindle. Loads Amazon's official Send to Kindle page in a native Mac window.
 
-## How it works
-
-KindleDrop loads [Amazon's Send to Kindle page](https://www.amazon.com/gp/sendtokindle) directly in the app window. Sign in once with your Amazon account, then upload files using Amazon's own interface — just like using the website in your browser.
-
-- No SMTP configuration needed
-- No email addresses to manage
-- No credentials stored in the app
-- Uses Amazon's official upload service
-
-## Build from source
+## Build
 
 ```bash
 cd ~/Projects/KindleDrop
@@ -19,7 +10,4 @@ cd ~/Projects/KindleDrop
 open KindleDrop.app
 ```
 
-## Requirements
-
-- macOS 14 (Sonoma) or later
-- An Amazon account with a Kindle device or Kindle app
+Sign in with your Amazon account and upload files.

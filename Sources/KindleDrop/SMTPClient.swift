@@ -22,31 +22,28 @@ actor SMTPClient {
     // MARK: - Public API
 
     func send(email: String,
-              password: String,
-              from: String,
-              to: String,
-              subject: String,
-              attachmentPath: URL) async throws {
+                  password: String,
+                  from: String,
+                  to: String,
+                  subject: String,
+                  attachmentPath: URL) async throws {
 
-        try await connect()
-        try await handshake()
-        if useTLS {
-            try await startTLS()
+            try await connect()
             try await handshake()
+            // STARTTLS for ports 587/25 — NOT for 465 (which is direct SMTPS)
+            if useTLS && port != 465 {
+                try await startTLS()
+                try await handshake()
+            }
+            try await authenticate(username: from, password: password)
+            try await sendMail(from: from, to: to, subject: subject, attachmentPath: attachmentPath)
+            try await quit()
         }
-        try await authenticate(username: from, password: password)
-        try await sendMail(from: from, to: to, subject: subject, attachmentPath: attachmentPath)
-        try await quit()
-    }
 
     /// Quick validation without sending email
     func validate() async throws {
         try await connect()
         try await handshake()
-        if useTLS {
-            try await startTLS()
-            try await handshake()
-        }
         try await quit()
     }
 
@@ -56,16 +53,17 @@ actor SMTPClient {
         let host = self.host
         let port = self.port
         let timeout = self.timeout
-        let useTLS = self.useTLS
 
         let tcpOptions = NWProtocolTCP.Options()
         tcpOptions.connectionTimeout = Int(timeout)
         tcpOptions.enableKeepalive = false
 
         let params: NWParameters
-        if useTLS {
+        if port == 465 {
+            // Direct SMTPS — TLS from the start
             params = NWParameters(tls: NWProtocolTLS.Options(), tcp: tcpOptions)
         } else {
+            // Plain TCP — STARTTLS or unencrypted
             params = NWParameters(tls: nil, tcp: tcpOptions)
         }
 
@@ -76,10 +74,9 @@ actor SMTPClient {
         )
 
         connection = conn
-
         conn.start(queue: .global())
 
-        // Wait for connection to be ready using continuation
+        // Wait for connection to be ready
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let guardFlag = GuardFlag()
             conn.stateUpdateHandler = { state in
@@ -111,9 +108,15 @@ actor SMTPClient {
     // MARK: - SMTP Commands
 
     private func handshake() async throws {
-        let response = try await sendCommand("EHLO localhost")
+        // EHLO response can be multi-line. Each continuation line starts with "250-".
+        // We must consume ALL lines so they don't pollute the buffer for the next command.
+        var response = try await sendCommand("EHLO localhost")
         guard response.contains("250") else {
             throw KindleDropError.smtpError("EHLO failed: \(response)")
+        }
+        // Drain remaining multi-line response
+        while response.hasPrefix("250-") {
+            response = try await readLine()
         }
     }
 
@@ -228,6 +231,10 @@ actor SMTPClient {
         }
 
         let fileData = try Data(contentsOf: attachmentPath)
+        if fileData.isEmpty {
+            throw KindleDropError.smtpError("File is empty: \(attachmentPath.lastPathComponent)")
+        }
+
         let base64Content = fileData.base64EncodedString()
         let fileName = attachmentPath.lastPathComponent
         let boundary = "==KINDLEDROP_BOUNDARY_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))="
@@ -239,7 +246,6 @@ actor SMTPClient {
         message += "MIME-Version: 1.0\r\n"
         message += "Content-Type: multipart/mixed; boundary=\"\(boundary)\"\r\n"
         message += "\r\n"
-        message += "This is a multipart message in MIME format.\r\n"
         message += "--\(boundary)\r\n"
         message += "Content-Type: text/plain; charset=\"utf-8\"\r\n"
         message += "\r\n"
@@ -265,7 +271,6 @@ actor SMTPClient {
         }
 
         body += "--\(boundary)--\r\n"
-        body += ".\r\n"
 
         return Data(body.utf8)
     }
@@ -279,7 +284,7 @@ actor SMTPClient {
         message += "Content-Type: text/plain; charset=\"utf-8\"\r\n"
         message += "\r\n"
         message += "KindleDrop connection test\r\n"
-        message += ".\r\n"
+
         return Data(message.utf8)
     }
 
@@ -291,7 +296,6 @@ actor SMTPClient {
     }
 
     private nonisolated func sendRaw(_ text: String) async throws {
-        // Must reconnect to the actor for connection access
         let conn = await connection
         guard let conn else {
             throw KindleDropError.connectionFailed("No connection")
@@ -311,7 +315,6 @@ actor SMTPClient {
 
     private func readLine() async throws -> String {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
-            // Check buffer on the actor
             Task { await self.readFromBufferOrNetwork(continuation: continuation) }
         }
     }
@@ -342,12 +345,10 @@ actor SMTPClient {
             }
 
             if let content = content, let text = String(data: content, encoding: .utf8) {
-                // Back to the actor to update buffer and continue
                 Task { await self.appendToBuffer(text, continuation: continuation) }
             } else if isComplete {
                 continuation.resume(throwing: KindleDropError.smtpError("Connection closed by server"))
             } else {
-                // Empty content, try again on actor
                 Task { await self.readFromBufferOrNetwork(continuation: continuation) }
             }
         }

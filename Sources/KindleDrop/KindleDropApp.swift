@@ -4,7 +4,6 @@ import SwiftUI
 struct KindleDropApp: App {
     @StateObject private var settings = AppSettings.shared
     @StateObject private var history = HistoryStore.shared
-
     @State private var showSettings = false
 
     var body: some Scene {
@@ -12,7 +11,7 @@ struct KindleDropApp: App {
             ContentView(showSettings: $showSettings)
                 .environmentObject(settings)
                 .environmentObject(history)
-                .frame(minWidth: 640, minHeight: 500)
+                .frame(minWidth: 800, minHeight: 600)
         }
         .windowResizability(.contentSize)
         .commands {
@@ -22,21 +21,6 @@ struct KindleDropApp: App {
                 }
                 .keyboardShortcut(",", modifiers: .command)
             }
-
-            CommandMenu("Send") {
-                Button("Send Selected Files") {
-                    NotificationCenter.default.post(name: .sendFiles, object: nil)
-                }
-                .keyboardShortcut("s", modifiers: .command)
-
-                Button("Clear History") {
-                    history.clearHistory()
-                }
-            }
         }
     }
-}
-
-extension Notification.Name {
-    static let sendFiles = Notification.Name("sendFiles")
 }

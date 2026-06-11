@@ -318,24 +318,49 @@ struct SendView: View {
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         var accepted = false
         for provider in providers {
-            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-                    if let data = item as? Data,
-                       let url = URL(dataRepresentation: data, relativeTo: nil) {
-                        DispatchQueue.main.async {
-                            let doc = KindleDocument(url: url)
-                            if !documents.contains(where: { $0.url == url }) {
-                                withAnimation {
-                                    documents.append(doc)
-                                }
-                            }
-                        }
+            guard provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) else {
+                continue
+            }
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
+                guard error == nil else { return }
+
+                // On macOS, Finder drag-and-drop provides the URL directly as an NSURL
+                if let url = item as? URL {
+                    DispatchQueue.main.async {
+                        self.addDocument(url: url)
+                    }
+                    return
+                }
+
+                // Fallback: some providers give Data that needs to be converted
+                if let data = item as? Data,
+                   let url = URL(dataRepresentation: data, relativeTo: nil) {
+                    DispatchQueue.main.async {
+                        self.addDocument(url: url)
+                    }
+                    return
+                }
+
+                // Last resort: try string path
+                if let path = item as? String {
+                    let url = URL(fileURLWithPath: path)
+                    DispatchQueue.main.async {
+                        self.addDocument(url: url)
                     }
                 }
-                accepted = true
             }
+            accepted = true
         }
         return accepted
+    }
+
+    private func addDocument(url: URL) {
+        let doc = KindleDocument(url: url)
+        if !documents.contains(where: { $0.url == url }) {
+            withAnimation {
+                documents.append(doc)
+            }
+        }
     }
 
     private func sendFiles() {

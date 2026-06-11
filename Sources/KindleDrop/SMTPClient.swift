@@ -27,6 +27,36 @@ actor SMTPClient {
                   to: String,
                   subject: String,
                   attachmentPath: URL) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            // Real SMTP work
+            group.addTask {
+                try await self.performSend(
+                    email: email, password: password,
+                    from: from, to: to,
+                    subject: subject, attachmentPath: attachmentPath
+                )
+            }
+            // Timeout task
+            group.addTask {
+                let seconds = UInt64(self.timeout * 1_000_000_000)
+                try await Task.sleep(nanoseconds: seconds)
+                throw KindleDropError.smtpError(
+                    "Connection timed out after \(Int(self.timeout)) seconds"
+                )
+            }
+            // Wait for whichever finishes first
+            try await group.next()
+            group.cancelAll()
+        }
+    }
+
+    /// The actual SMTP send logic, wrapped by send() which enforces a timeout
+    private func performSend(email: String,
+                  password: String,
+                  from: String,
+                  to: String,
+                  subject: String,
+                  attachmentPath: URL) async throws {
 
             try await connect()
             try await handshake()
